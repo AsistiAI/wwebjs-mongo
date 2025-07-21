@@ -59,6 +59,20 @@ class MongoStore {
     await Promise.all(documents.map((doc) => bucket.delete(doc._id)));
   }
 
+  async listSessions() {
+    // Obtiene todas las colecciones de la base de datos
+    const collections = await this.db.listCollections().toArray();
+    // Filtra las que corresponden a sesiones de WhatsApp
+    const sessionCollections = collections.filter(col =>
+      /^whatsapp-(.+)\.files$/.test(col.name)
+    );
+    // Extrae el nombre de la sesión
+    return sessionCollections.map(col => {
+      const match = col.name.match(/^whatsapp-(.+)\.files$/);
+      return match ? match[1] : null;
+    }).filter(Boolean);
+  }
+
   async #deletePrevious(options) {
     const documents = await options.bucket
       .find({

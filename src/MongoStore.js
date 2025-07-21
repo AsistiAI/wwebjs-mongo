@@ -1,4 +1,4 @@
-const fs = require("fs");
+const COLLECTION_NAME = "wwebjs-sessions";
 
 class MongoStore {
   constructor({ mongoose, dbName } = {}) {
@@ -9,82 +9,49 @@ class MongoStore {
     this.db = dbName
       ? mongoose.connection.useDb(dbName)
       : mongoose.connection.db;
+    this.collection = this.db.collection(COLLECTION_NAME);
   }
 
-  async sessionExists(options) {
-    let multiDeviceCollection = this.db.collection(
-      `whatsapp-${options.session}.files`
+  /**
+   * Guarda los datos de la sesión en la base de datos.
+   * @param {Object} data - Datos serializados de la sesión.
+   * @param {string} sessionId - Nombre/ID de la sesión.
+   */
+  async save(data, sessionId) {
+    await this.collection.updateOne(
+      { sessionId },
+      { $set: { sessionId, data } },
+      { upsert: true }
     );
-    let hasExistingSession = await multiDeviceCollection.countDocuments();
-    return !!hasExistingSession;
   }
 
-  async save(options) {
-    var bucket = new this.mongoose.mongo.GridFSBucket(this.db, {
-      bucketName: `whatsapp-${options.session}`,
-    });
-    await new Promise((resolve, reject) => {
-      fs.createReadStream(`${options.session}.zip`)
-        .pipe(bucket.openUploadStream(`${options.session}.zip`))
-        .on("error", (err) => reject(err))
-        .on("close", () => resolve());
-    });
-    options.bucket = bucket;
-    await this.#deletePrevious(options);
+  /**
+   * Obtiene los datos de la sesión desde la base de datos.
+   * @param {string} sessionId - Nombre/ID de la sesión.
+   * @returns {Object|null} Datos serializados de la sesión o null si no existe.
+   */
+  async get(sessionId) {
+    const doc = await this.collection.findOne({ sessionId });
+    return doc ? doc.data : null;
   }
 
-  async extract(options) {
-    var bucket = new this.mongoose.mongo.GridFSBucket(this.db, {
-      bucketName: `whatsapp-${options.session}`,
-    });
-    return new Promise((resolve, reject) => {
-      bucket
-        .openDownloadStreamByName(`${options.session}.zip`)
-        .pipe(fs.createWriteStream(options.path))
-        .on("error", (err) => reject(err))
-        .on("close", () => resolve());
-    });
+  /**
+   * Elimina la sesión de la base de datos.
+   * @param {string} sessionId - Nombre/ID de la sesión.
+   */
+  async delete(sessionId) {
+    await this.collection.deleteOne({ sessionId });
   }
 
-  async delete(options) {
-    var bucket = new this.mongoose.mongo.GridFSBucket(this.db, {
-      bucketName: `whatsapp-${options.session}`,
-    });
-    const documents = await bucket
-      .find({
-        filename: `${options.session}.zip`,
-      })
+  /**
+   * Lista todos los IDs de sesión almacenados.
+   * @returns {string[]} Array de sessionId.
+   */
+  async list() {
+    const docs = await this.collection
+      .find({}, { projection: { sessionId: 1 } })
       .toArray();
-
-    await Promise.all(documents.map((doc) => bucket.delete(doc._id)));
-  }
-
-  async listSessions() {
-    // Obtiene todas las colecciones de la base de datos
-    const collections = await this.db.listCollections().toArray();
-    // Filtra las que corresponden a sesiones de WhatsApp
-    const sessionCollections = collections.filter(col =>
-      /^whatsapp-(.+)\.files$/.test(col.name)
-    );
-    // Extrae el nombre de la sesión
-    return sessionCollections.map(col => {
-      const match = col.name.match(/^whatsapp-(.+)\.files$/);
-      return match ? match[1] : null;
-    }).filter(Boolean);
-  }
-
-  async #deletePrevious(options) {
-    const documents = await options.bucket
-      .find({
-        filename: `${options.session}.zip`,
-      })
-      .toArray();
-    if (documents.length > 1) {
-      const oldSession = documents.reduce((a, b) =>
-        a.uploadDate < b.uploadDate ? a : b
-      );
-      return options.bucket.delete(oldSession._id);
-    }
+    return docs.map((doc) => doc.sessionId);
   }
 }
 

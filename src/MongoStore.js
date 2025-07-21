@@ -53,6 +53,16 @@ class MongoStore {
       .toArray();
     return docs.map((doc) => doc.sessionId);
   }
+
+  /**
+   * Verifica si existe una sesión en la base de datos.
+   * @param {string} sessionId - Nombre/ID de la sesión.
+   * @returns {boolean} true si existe, false si no.
+   */
+  async sessionExists(sessionId) {
+    const data = await this.get(sessionId);
+    return !!data;
+  }
 }
 
 module.exports = MongoStore;
